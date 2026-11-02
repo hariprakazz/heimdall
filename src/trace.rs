@@ -13,25 +13,25 @@ use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 
 use crate::event::{Access, Event};
+use crate::resolve;
 
 const SYS_OPENAT: u64 = 56;
 
 struct Task {
     mem: File,
-    in_call: bool,
     pending: Option<(Access, String)>,
 }
 
 impl Task {
-    fn open(pid: Pid, in_call: bool) -> Result<Task> {
+    fn open(pid: Pid) -> Result<Task> {
         let mem = File::open(format!("/proc/{pid}/mem"))?;
-        Ok(Task { mem, in_call, pending: None })
+        Ok(Task { mem, pending: None })
     }
 }
 
 fn task_of(tasks: &mut HashMap<Pid, Task>, pid: Pid) -> Result<&mut Task> {
     if !tasks.contains_key(&pid) {
-        tasks.insert(pid, Task::open(pid, true)?);
+        tasks.insert(pid, Task::open(pid)?);
     }
     Ok(tasks.get_mut(&pid).unwrap())
 }
@@ -80,10 +80,11 @@ fn kind_of(flags: u64) -> Access {
 
 fn on_syscall(pid: Pid, task: &mut Task, emit: &mut impl FnMut(Event)) -> Result<()> {
     let regs = ptrace::getregs(pid)?;
-    if !task.in_call {
+    if regs.regs[7] == 0 {
         task.pending = None;
         if regs.regs[8] == SYS_OPENAT {
-            if let Some(path) = read_cstr(&task.mem, regs.regs[1]) {
+            if let Some(raw) = read_cstr(&task.mem, regs.regs[1]) {
+                let path = resolve::absolute(pid, regs.regs[0] as i32, &raw);
                 task.pending = Some((kind_of(regs.regs[2]), path));
             }
         }
@@ -91,7 +92,6 @@ fn on_syscall(pid: Pid, task: &mut Task, emit: &mut impl FnMut(Event)) -> Result
         let ok = (regs.regs[0] as i64) >= 0;
         emit(Event::Access { pid: pid.as_raw(), kind, path, ok });
     }
-    task.in_call = !task.in_call;
     Ok(())
 }
 
@@ -120,7 +120,7 @@ pub fn run(argv: &[String], mut emit: impl FnMut(Event)) -> Result<i32> {
     )?;
 
     let mut tasks: HashMap<Pid, Task> = HashMap::new();
-    tasks.insert(root, Task::open(root, false)?);
+    tasks.insert(root, Task::open(root)?);
     let mut root_code = 0;
     ptrace::syscall(root, None)?;
 

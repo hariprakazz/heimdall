@@ -1,4 +1,5 @@
 mod event;
+mod resolve;
 mod trace;
 
 use anyhow::Result;
