@@ -1,5 +1,6 @@
 mod event;
 mod resolve;
+mod syscalls;
 mod trace;
 
 use anyhow::Result;

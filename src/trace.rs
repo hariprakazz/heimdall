@@ -1,31 +1,27 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::os::unix::fs::FileExt;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use nix::fcntl::OFlag;
 use nix::libc::{PTRACE_EVENT_CLONE, PTRACE_EVENT_EXEC, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK};
 use nix::sys::ptrace;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 
-use crate::event::{Access, Event};
-use crate::resolve;
-
-const SYS_OPENAT: u64 = 56;
+use crate::event::Event;
+use crate::syscalls::{self, Touch};
 
 struct Task {
     mem: File,
-    pending: Option<(Access, String)>,
+    pending: Vec<Touch>,
 }
 
 impl Task {
     fn open(pid: Pid) -> Result<Task> {
         let mem = File::open(format!("/proc/{pid}/mem"))?;
-        Ok(Task { mem, pending: None })
+        Ok(Task { mem, pending: Vec::new() })
     }
 }
 
@@ -34,27 +30,6 @@ fn task_of(tasks: &mut HashMap<Pid, Task>, pid: Pid) -> Result<&mut Task> {
         tasks.insert(pid, Task::open(pid)?);
     }
     Ok(tasks.get_mut(&pid).unwrap())
-}
-
-fn read_cstr(mem: &File, addr: u64) -> Option<String> {
-    let mut out = Vec::new();
-    let mut chunk = [0u8; 256];
-    let mut off = 0u64;
-    loop {
-        let got = mem.read_at(&mut chunk, addr + off).ok()?;
-        if got == 0 {
-            return None;
-        }
-        if let Some(end) = chunk[..got].iter().position(|&b| b == 0) {
-            out.extend_from_slice(&chunk[..end]);
-            return Some(String::from_utf8_lossy(&out).into_owned());
-        }
-        out.extend_from_slice(&chunk[..got]);
-        off += got as u64;
-        if out.len() > 4096 {
-            return None;
-        }
-    }
 }
 
 fn read_argv(pid: Pid) -> Vec<String> {
@@ -68,29 +43,15 @@ fn read_argv(pid: Pid) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn kind_of(flags: u64) -> Access {
-    let fl = OFlag::from_bits_truncate(flags as i32);
-    let writes = OFlag::O_WRONLY | OFlag::O_RDWR | OFlag::O_CREAT | OFlag::O_TRUNC;
-    if fl.intersects(writes) {
-        Access::Write
-    } else {
-        Access::Read
-    }
-}
-
 fn on_syscall(pid: Pid, task: &mut Task, emit: &mut impl FnMut(Event)) -> Result<()> {
     let regs = ptrace::getregs(pid)?;
     if regs.regs[7] == 0 {
-        task.pending = None;
-        if regs.regs[8] == SYS_OPENAT {
-            if let Some(raw) = read_cstr(&task.mem, regs.regs[1]) {
-                let path = resolve::absolute(pid, regs.regs[0] as i32, &raw);
-                task.pending = Some((kind_of(regs.regs[2]), path));
-            }
-        }
-    } else if let Some((kind, path)) = task.pending.take() {
+        task.pending = syscalls::decode(pid, &task.mem, &regs.regs);
+    } else {
         let ok = (regs.regs[0] as i64) >= 0;
-        emit(Event::Access { pid: pid.as_raw(), kind, path, ok });
+        for (kind, path) in task.pending.drain(..) {
+            emit(Event::Access { pid: pid.as_raw(), kind, path, ok });
+        }
     }
     Ok(())
 }
