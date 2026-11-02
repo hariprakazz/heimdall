@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::fs::FileExt;
 use std::os::unix::process::CommandExt;
@@ -5,14 +6,35 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use nix::fcntl::OFlag;
+use nix::libc::{PTRACE_EVENT_CLONE, PTRACE_EVENT_EXEC, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK};
 use nix::sys::ptrace;
 use nix::sys::signal::Signal;
-use nix::sys::wait::{waitpid, WaitStatus};
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 
 use crate::event::{Access, Event};
 
 const SYS_OPENAT: u64 = 56;
+
+struct Task {
+    mem: File,
+    in_call: bool,
+    pending: Option<(Access, String)>,
+}
+
+impl Task {
+    fn open(pid: Pid, in_call: bool) -> Result<Task> {
+        let mem = File::open(format!("/proc/{pid}/mem"))?;
+        Ok(Task { mem, in_call, pending: None })
+    }
+}
+
+fn task_of(tasks: &mut HashMap<Pid, Task>, pid: Pid) -> Result<&mut Task> {
+    if !tasks.contains_key(&pid) {
+        tasks.insert(pid, Task::open(pid, true)?);
+    }
+    Ok(tasks.get_mut(&pid).unwrap())
+}
 
 fn read_cstr(mem: &File, addr: u64) -> Option<String> {
     let mut out = Vec::new();
@@ -35,6 +57,17 @@ fn read_cstr(mem: &File, addr: u64) -> Option<String> {
     }
 }
 
+fn read_argv(pid: Pid) -> Vec<String> {
+    std::fs::read(format!("/proc/{pid}/cmdline"))
+        .map(|raw| {
+            raw.split(|&b| b == 0)
+                .filter(|part| !part.is_empty())
+                .map(|part| String::from_utf8_lossy(part).into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn kind_of(flags: u64) -> Access {
     let fl = OFlag::from_bits_truncate(flags as i32);
     let writes = OFlag::O_WRONLY | OFlag::O_RDWR | OFlag::O_CREAT | OFlag::O_TRUNC;
@@ -45,6 +78,23 @@ fn kind_of(flags: u64) -> Access {
     }
 }
 
+fn on_syscall(pid: Pid, task: &mut Task, emit: &mut impl FnMut(Event)) -> Result<()> {
+    let regs = ptrace::getregs(pid)?;
+    if !task.in_call {
+        task.pending = None;
+        if regs.regs[8] == SYS_OPENAT {
+            if let Some(path) = read_cstr(&task.mem, regs.regs[1]) {
+                task.pending = Some((kind_of(regs.regs[2]), path));
+            }
+        }
+    } else if let Some((kind, path)) = task.pending.take() {
+        let ok = (regs.regs[0] as i64) >= 0;
+        emit(Event::Access { pid: pid.as_raw(), kind, path, ok });
+    }
+    task.in_call = !task.in_call;
+    Ok(())
+}
+
 pub fn run(argv: &[String], mut emit: impl FnMut(Event)) -> Result<i32> {
     let (prog, rest) = argv.split_first().context("no command given")?;
     let mut cmd = Command::new(prog);
@@ -53,51 +103,74 @@ pub fn run(argv: &[String], mut emit: impl FnMut(Event)) -> Result<i32> {
         cmd.pre_exec(|| ptrace::traceme().map_err(std::io::Error::from));
     }
     let child = cmd.spawn().with_context(|| format!("cannot start {prog}"))?;
-    let pid = Pid::from_raw(child.id() as i32);
+    let root = Pid::from_raw(child.id() as i32);
 
-    match waitpid(pid, None)? {
+    match waitpid(root, None)? {
         WaitStatus::Stopped(_, Signal::SIGTRAP) => {}
         other => bail!("unexpected first stop: {other:?}"),
     }
     ptrace::setoptions(
-        pid,
-        ptrace::Options::PTRACE_O_TRACESYSGOOD | ptrace::Options::PTRACE_O_EXITKILL,
+        root,
+        ptrace::Options::PTRACE_O_TRACESYSGOOD
+            | ptrace::Options::PTRACE_O_EXITKILL
+            | ptrace::Options::PTRACE_O_TRACEFORK
+            | ptrace::Options::PTRACE_O_TRACEVFORK
+            | ptrace::Options::PTRACE_O_TRACECLONE
+            | ptrace::Options::PTRACE_O_TRACEEXEC,
     )?;
-    let mem = File::open(format!("/proc/{}/mem", pid))?;
 
-    let mut in_call = false;
-    let mut pending: Option<(Access, String)> = None;
-    ptrace::syscall(pid, None)?;
+    let mut tasks: HashMap<Pid, Task> = HashMap::new();
+    tasks.insert(root, Task::open(root, false)?);
+    let mut root_code = 0;
+    ptrace::syscall(root, None)?;
 
-    loop {
-        match waitpid(pid, None)? {
-            WaitStatus::PtraceSyscall(_) => {
-                let regs = ptrace::getregs(pid)?;
-                if !in_call {
-                    pending = None;
-                    if regs.regs[8] == SYS_OPENAT {
-                        if let Some(path) = read_cstr(&mem, regs.regs[1]) {
-                            pending = Some((kind_of(regs.regs[2]), path));
-                        }
-                    }
-                } else if let Some((kind, path)) = pending.take() {
-                    let ok = (regs.regs[0] as i64) >= 0;
-                    emit(Event::Access { pid: pid.as_raw(), kind, path, ok });
+    while !tasks.is_empty() {
+        match waitpid(None, Some(WaitPidFlag::__WALL))? {
+            WaitStatus::PtraceSyscall(pid) => {
+                let task = task_of(&mut tasks, pid)?;
+                on_syscall(pid, task, &mut emit)?;
+                ptrace::syscall(pid, None)?;
+            }
+            WaitStatus::PtraceEvent(pid, _, ev) => {
+                if ev == PTRACE_EVENT_FORK || ev == PTRACE_EVENT_VFORK || ev == PTRACE_EVENT_CLONE {
+                    let kid = ptrace::getevent(pid)? as i32;
+                    emit(Event::Spawn { parent: pid.as_raw(), child: kid });
+                } else if ev == PTRACE_EVENT_EXEC {
+                    let task = task_of(&mut tasks, pid)?;
+                    task.mem = File::open(format!("/proc/{pid}/mem"))?;
+                    let path = std::fs::read_link(format!("/proc/{pid}/exe"))
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    emit(Event::Exec { pid: pid.as_raw(), path, argv: read_argv(pid) });
                 }
-                in_call = !in_call;
                 ptrace::syscall(pid, None)?;
             }
-            WaitStatus::Exited(_, code) => {
+            WaitStatus::Stopped(pid, sig) => {
+                task_of(&mut tasks, pid)?;
+                let fwd = if sig == Signal::SIGSTOP || sig == Signal::SIGTRAP {
+                    None
+                } else {
+                    Some(sig)
+                };
+                ptrace::syscall(pid, fwd)?;
+            }
+            WaitStatus::Exited(pid, code) => {
                 emit(Event::Exit { pid: pid.as_raw(), code });
-                return Ok(code);
+                tasks.remove(&pid);
+                if pid == root {
+                    root_code = code;
+                }
             }
-            WaitStatus::Signaled(_, sig, _) => bail!("child killed by {sig}"),
-            WaitStatus::Stopped(_, sig) => {
-                ptrace::syscall(pid, Some(sig))?;
+            WaitStatus::Signaled(pid, sig, _) => {
+                let code = 128 + sig as i32;
+                emit(Event::Exit { pid: pid.as_raw(), code });
+                tasks.remove(&pid);
+                if pid == root {
+                    root_code = code;
+                }
             }
-            _ => {
-                ptrace::syscall(pid, None)?;
-            }
+            _ => {}
         }
     }
+    Ok(root_code)
 }
