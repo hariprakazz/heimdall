@@ -48,9 +48,11 @@ fn on_syscall(pid: Pid, task: &mut Task, emit: &mut impl FnMut(Event)) -> Result
     if regs.regs[7] == 0 {
         task.pending = syscalls::decode(pid, &task.mem, &regs.regs);
     } else {
-        let ok = (regs.regs[0] as i64) >= 0;
+        let ret = regs.regs[0] as i64;
+        let ok = ret >= 0;
+        let errno = if ok { 0 } else { (-ret) as i32 };
         for (kind, path) in task.pending.drain(..) {
-            emit(Event::Access { pid: pid.as_raw(), kind, path, ok });
+            emit(Event::Access { pid: pid.as_raw(), kind, path, ok, errno });
         }
     }
     Ok(())

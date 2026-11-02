@@ -15,7 +15,7 @@ pub enum Access {
 pub enum Event {
     Spawn { parent: i32, child: i32 },
     Exec { pid: i32, path: String, argv: Vec<String> },
-    Access { pid: i32, kind: Access, path: String, ok: bool },
+    Access { pid: i32, kind: Access, path: String, ok: bool, #[serde(default)] errno: i32 },
     Exit { pid: i32, code: i32 },
 }
 
@@ -38,6 +38,7 @@ mod tests {
             kind: Access::Read,
             path: "/work/src/main.c".to_string(),
             ok: true,
+            errno: 0,
         };
         let line = encode(&ev).unwrap();
         assert_eq!(decode(&line).unwrap(), ev);

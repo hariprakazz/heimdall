@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use nix::libc::{ENOENT, ENOTDIR};
 
 use crate::event::{decode, Access, Event};
 
@@ -40,6 +41,8 @@ pub fn run(file: &Path, root: &str) -> Result<()> {
     let src = File::open(file).with_context(|| format!("cannot open {}", file.display()))?;
     let mut reads = BTreeSet::new();
     let mut writes = BTreeSet::new();
+    let mut probed = BTreeSet::new();
+    let mut missing = BTreeSet::new();
     let mut outside = BTreeSet::new();
     let mut system: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut misses = 0;
@@ -49,11 +52,16 @@ pub fn run(file: &Path, root: &str) -> Result<()> {
         if line.trim().is_empty() {
             continue;
         }
-        let Event::Access { kind, path, ok, .. } = decode(&line)? else {
+        let Event::Access { kind, path, ok, errno, .. } = decode(&line)? else {
             continue;
         };
         if !ok {
-            misses += 1;
+            let gone = errno == ENOENT || errno == ENOTDIR;
+            if gone && within(&path, root) {
+                missing.insert(path);
+            } else if gone {
+                misses += 1;
+            }
             continue;
         }
         if let Some(group) = bucket(&path) {
@@ -61,21 +69,25 @@ pub fn run(file: &Path, root: &str) -> Result<()> {
         } else if within(&path, root) {
             match kind {
                 Access::Write | Access::Remove => writes.insert(path),
-                _ => reads.insert(path),
+                Access::Stat => probed.insert(path),
+                Access::Read => reads.insert(path),
             };
         } else {
             outside.insert(path);
         }
     }
+    probed.retain(|p| !reads.contains(p) && !writes.contains(p));
 
     println!("root: {root}");
     show("written inside root", &writes);
     show("read inside root", &reads);
+    show("only probed inside root", &probed);
+    show("failed lookups inside root", &missing);
     show("outside root, not system", &outside);
     println!("system paths: {}", system.values().map(|set| set.len()).sum::<usize>());
     for (group, set) in &system {
         println!("  {group}  {}", set.len());
     }
-    println!("failed lookups: {misses}");
+    println!("failed lookups elsewhere: {misses}");
     Ok(())
 }
