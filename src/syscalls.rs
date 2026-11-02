@@ -14,9 +14,12 @@ const SYS_FACCESSAT: u64 = 48;
 const SYS_OPENAT: u64 = 56;
 const SYS_READLINKAT: u64 = 78;
 const SYS_NEWFSTATAT: u64 = 79;
+const SYS_EXECVE: u64 = 221;
 const SYS_RENAMEAT2: u64 = 276;
+const SYS_EXECVEAT: u64 = 281;
 const SYS_STATX: u64 = 291;
 const SYS_FACCESSAT2: u64 = 439;
+const AT_FDCWD: u64 = (-100i64) as u64;
 
 pub type Touch = (Access, String);
 
@@ -73,6 +76,8 @@ pub fn decode(pid: Pid, mem: &File, reg: &[u64; 31]) -> Vec<Touch> {
             out.extend(first(Access::Remove));
             out.extend(at_path(pid, mem, reg[2], reg[3]).map(|p| (Access::Write, p)));
         }
+        SYS_EXECVE => out.extend(at_path(pid, mem, AT_FDCWD, reg[0]).map(|p| (Access::Read, p))),
+        SYS_EXECVEAT => out.extend(first(Access::Read)),
         _ => {}
     }
     out
