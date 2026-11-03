@@ -1,4 +1,5 @@
 mod attribute;
+mod declared;
 mod event;
 mod ninja;
 mod report;

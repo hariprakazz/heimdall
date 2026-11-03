@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::event::{decode, Event};
+use crate::declared;
+use crate::event::{decode, Access, Event};
 use crate::ninja;
 
 fn owner_of(pid: i32, parent: &HashMap<i32, i32>, roots: &HashMap<i32, usize>) -> Option<usize> {
@@ -26,10 +27,13 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         .enumerate()
         .map(|(idx, edge)| (edge.command.as_str(), idx))
         .collect();
+    let outputs: Vec<String> = edges.iter().map(|edge| edge.output.clone()).collect();
+    let declared = declared::load(dir, &outputs)?;
 
     let mut parent: HashMap<i32, i32> = HashMap::new();
     let mut roots: HashMap<i32, usize> = HashMap::new();
     let mut touched: Vec<i32> = Vec::new();
+    let mut acts: Vec<(i32, Access, String)> = Vec::new();
     let mut stray: Vec<String> = Vec::new();
     let mut shells = 0;
 
@@ -54,7 +58,12 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
                     }
                 }
             }
-            Event::Access { pid, .. } => touched.push(pid),
+            Event::Access { pid, kind, path, ok, .. } => {
+                touched.push(pid);
+                if ok && (kind == Access::Read || kind == Access::Write) {
+                    acts.push((pid, kind, path));
+                }
+            }
             Event::Exit { .. } => {}
         }
     }
@@ -69,6 +78,62 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
     println!("accesses: {}, attributed: {hit}", touched.len());
     for cmd in stray.iter().take(3) {
         println!("unmatched: {}", cmd.chars().take(150).collect::<String>());
+    }
+
+    let mut undeclared: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
+    let mut wrote: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
+    let mut seen = 0;
+    for (pid, kind, path) in &acts {
+        let Some(idx) = owner_of(*pid, &parent, &roots) else {
+            continue;
+        };
+        if *kind == Access::Write {
+            wrote[idx].insert(path.clone());
+            continue;
+        }
+        seen += 1;
+        if wrote[idx].contains(path) {
+            continue;
+        }
+        let known = declared
+            .get(&edges[idx].output)
+            .is_some_and(|set| set.contains(path));
+        if !known {
+            undeclared[idx].insert(path.clone());
+        }
+    }
+
+    let pairs: usize = undeclared.iter().map(|set| set.len()).sum();
+    println!("attributed reads: {seen}, distinct undeclared (edge, path) pairs: {pairs}");
+
+    let mut by_dir: HashMap<String, usize> = HashMap::new();
+    for set in &undeclared {
+        for path in set {
+            let dir_name = Path::new(path)
+                .parent()
+                .map(|par| par.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            *by_dir.entry(dir_name).or_default() += 1;
+        }
+    }
+    let mut ranked: Vec<(String, usize)> = by_dir.into_iter().collect();
+    ranked.sort_by(|left, right| right.1.cmp(&left.1).then(left.0.cmp(&right.0)));
+    println!("top directories by undeclared reads:");
+    for (dir_name, count) in ranked.iter().take(20) {
+        println!("  {count:6}  {dir_name}");
+    }
+
+    let skip = ["/bin/", "/usr/bin/", "/lib/", "/usr/lib/", "/usr/libexec/", "/dev/", "/etc/ld.so.cache"];
+    println!("project level undeclared reads:");
+    for (idx, set) in undeclared.iter().enumerate() {
+        let mut list: Vec<&String> = set
+            .iter()
+            .filter(|path| !skip.iter().any(|pre| path.starts_with(pre)))
+            .collect();
+        list.sort();
+        for path in list {
+            println!("  {}  <-  {path}", edges[idx].output);
+        }
     }
     Ok(())
 }
