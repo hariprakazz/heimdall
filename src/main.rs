@@ -1,4 +1,6 @@
+mod attribute;
 mod event;
+mod ninja;
 mod report;
 mod resolve;
 mod syscalls;
@@ -33,6 +35,12 @@ enum Action {
         #[arg(short, long)]
         root: String,
     },
+    Actions {
+        file: PathBuf,
+
+        #[arg(short, long)]
+        dir: PathBuf,
+    },
 }
 
 fn run(out: Option<PathBuf>, cmd: Vec<String>) -> Result<()> {
@@ -57,5 +65,6 @@ fn main() -> Result<()> {
     match Cli::parse().action {
         Action::Run { out, cmd } => run(out, cmd),
         Action::Report { file, root } => report::run(&file, &root),
+        Action::Actions { file, dir } => attribute::run(&file, &dir),
     }
 }
