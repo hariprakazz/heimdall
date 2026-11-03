@@ -9,7 +9,7 @@ use crate::declared;
 use crate::event::{decode, Access, Event};
 use crate::ninja;
 
-fn owner_of(pid: i32, parent: &HashMap<i32, i32>, roots: &HashMap<i32, usize>) -> Option<usize> {
+pub fn owner_of(pid: i32, parent: &HashMap<i32, i32>, roots: &HashMap<i32, usize>) -> Option<usize> {
     let mut cur = pid;
     for _ in 0..64 {
         if let Some(&idx) = roots.get(&cur) {

@@ -1,5 +1,6 @@
 mod attribute;
 mod declared;
+mod diff;
 mod event;
 mod ninja;
 mod report;
@@ -36,6 +37,11 @@ enum Action {
         #[arg(short, long)]
         root: String,
     },
+    Diff {
+        first: PathBuf,
+
+        second: PathBuf,
+    },
     Actions {
         file: PathBuf,
 
@@ -67,5 +73,6 @@ fn main() -> Result<()> {
         Action::Run { out, cmd } => run(out, cmd),
         Action::Report { file, root } => report::run(&file, &root),
         Action::Actions { file, dir } => attribute::run(&file, &dir),
+        Action::Diff { first, second } => diff::run(&first, &second),
     }
 }
