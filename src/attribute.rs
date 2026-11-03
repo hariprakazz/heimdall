@@ -82,6 +82,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
 
     let mut undeclared: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
     let mut wrote: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
+    let mut writer: HashMap<String, usize> = HashMap::new();
     let mut seen = 0;
     for (pid, kind, path) in &acts {
         let Some(idx) = owner_of(*pid, &parent, &roots) else {
@@ -89,6 +90,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         };
         if *kind == Access::Write {
             wrote[idx].insert(path.clone());
+            writer.entry(path.clone()).or_insert(idx);
             continue;
         }
         seen += 1;
@@ -100,6 +102,21 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
             .is_some_and(|set| set.contains(path));
         if !known {
             undeclared[idx].insert(path.clone());
+        }
+    }
+
+    let mut generated: Vec<(usize, String, usize)> = Vec::new();
+    for (idx, set) in undeclared.iter_mut().enumerate() {
+        let mut moved: Vec<String> = set
+            .iter()
+            .filter(|path| writer.get(*path).is_some_and(|&other| other != idx))
+            .cloned()
+            .collect();
+        moved.sort();
+        for path in moved {
+            set.remove(&path);
+            let other = writer[&path];
+            generated.push((idx, path, other));
         }
     }
 
@@ -121,6 +138,11 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
     println!("top directories by undeclared reads:");
     for (dir_name, count) in ranked.iter().take(20) {
         println!("  {count:6}  {dir_name}");
+    }
+
+    println!("missing dependency edges: {}", generated.len());
+    for (idx, path, other) in &generated {
+        println!("  {}  <-  {path}  (written by {})", edges[*idx].output, edges[*other].output);
     }
 
     let skip = ["/bin/", "/usr/bin/", "/lib/", "/usr/lib/", "/usr/libexec/", "/dev/", "/etc/ld.so.cache"];
