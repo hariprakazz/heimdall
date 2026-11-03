@@ -2,6 +2,7 @@ mod attribute;
 mod declared;
 mod diff;
 mod event;
+mod filter;
 mod ninja;
 mod report;
 mod resolve;
