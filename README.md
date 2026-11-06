@@ -48,7 +48,7 @@ The steps that generate `pnglibconf.h` read files that the build graph does not 
 
 I checked one consequence by hand. After touching `scripts/pnglibconf/dfn.awk`, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. So editing that script does not rebuild what reads it until a clean build. I would call that low severity, and I have not reported it to the libpng maintainers.
 
-**Overhead** on libuv with `-j4`: 0.68s plain, 5.19s under ptrace (7.6x), 4.19s with the seccomp filter (6.1x). These were measured in an earlier session and not repeated for this README. The fast mode helps, but not by much, and I only measured it on libuv.
+**Overhead** on libuv with `-j4`, release build, average of 3 runs: 0.68s plain, 5.36s under ptrace (7.9x), 4.20s with the seccomp filter (6.2x). The fast mode is about 22% faster than plain ptrace, which helps but not by much, and I only measured it on libuv.
 
 ## Limits
 
