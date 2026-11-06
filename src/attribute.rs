@@ -194,6 +194,9 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
                 only_probed += 1;
                 continue;
             }
+            if links_to(dir, &edge.output, path) {
+                continue;
+            }
             idle.push((idx, path.clone()));
         }
     }
@@ -236,4 +239,16 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn links_to(dir: &Path, output: &str, input: &str) -> bool {
+    let out = dir.join(output);
+    let is_link = std::fs::symlink_metadata(&out).is_ok_and(|meta| meta.file_type().is_symlink());
+    if !is_link {
+        return false;
+    }
+    match (std::fs::canonicalize(&out), std::fs::canonicalize(dir.join(input))) {
+        (Ok(real), Ok(want)) => real == want,
+        _ => false,
+    }
 }

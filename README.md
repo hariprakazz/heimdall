@@ -34,7 +34,7 @@ Setting the `HEIMDALL_FAST` environment variable to any value before `run` insta
 **libuv** (CMake and Ninja, 79 build steps, `-j4`)
 
 - All 79 commands matched to an edge. 368446 of 369455 recorded accesses were attributed. The rest are Ninja's own, before it spawns a shell.
-- Zero missing dependency edges and zero project level undeclared reads. The only declared-but-unread input is a symlink step (`libuv.so.1`), which is a false positive: creating a symlink never opens its target.
+- Zero missing dependency edges, zero project level undeclared reads and zero unused declared inputs. An earlier version flagged the `libuv.so.1` symlink step as unused, because creating a symlink never opens its target. Heimdall now skips a declared input when the output of the edge is a symlink pointing at it.
 - Two runs diffed with 0 commands differing. A slow trace against a fast mode trace also differed in 0 commands.
 - A gcc compile traced under `strace -f` and under heimdall touched the same 228 paths.
 
@@ -59,6 +59,7 @@ I checked one consequence by hand. After touching `scripts/pnglibconf/dfn.awk`, 
 - Stat only probes are not judged as undeclared reads.
 - `diff` compares sets of reads, writes and removes. It cannot see a lost failed probe or a changed count, and it ignores a temp file that a step both writes and removes.
 - Suggested additions are hints, not patches. Heimdall never reads `build.ninja`, so it cannot print a diff that applies. With a generated Ninja file such as CMake's, the real fix belongs in the generator.
+- The symlink check reads the output from disk, so it only works while the build tree still exists when `actions` runs.
 - Only libuv and libpng were checked on real projects.
 
 ## Building
