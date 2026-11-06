@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use nix::sys::signal::{signal, SigHandler, Signal};
 
 #[derive(Parser)]
 #[command(name = "heimdall")]
@@ -69,8 +70,18 @@ fn run(out: Option<PathBuf>, cmd: Vec<String>) -> Result<()> {
     std::process::exit(code);
 }
 
+fn quiet_pipe() {
+    unsafe {
+        let _ = signal(Signal::SIGPIPE, SigHandler::SigDfl);
+    }
+}
+
 fn main() -> Result<()> {
-    match Cli::parse().action {
+    let action = Cli::parse().action;
+    if !matches!(action, Action::Run { .. }) {
+        quiet_pipe();
+    }
+    match action {
         Action::Run { out, cmd } => run(out, cmd),
         Action::Report { file, root } => report::run(&file, &root),
         Action::Actions { file, dir } => attribute::run(&file, &dir),

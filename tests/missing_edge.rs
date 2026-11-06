@@ -55,3 +55,20 @@ fn declared_producer_is_not_reported() {
     let text = report(&dir);
     assert!(text.contains("missing dependency edges: 0"), "{text}");
 }
+
+#[test]
+fn missing_edge_gets_an_addition_suggestion() {
+    let dir = scratch("suggest");
+    fs::write(dir.join("build.ninja"), graph("seed.txt")).unwrap();
+    let text = report(&dir);
+    assert!(text.contains("suggested additions:"), "{text}");
+    assert!(text.contains("b.txt: add \"| a.txt\" to its build line"), "{text}");
+}
+
+#[test]
+fn declared_producer_gets_no_suggestion() {
+    let dir = scratch("quiet");
+    fs::write(dir.join("build.ninja"), graph("seed.txt a.txt")).unwrap();
+    let text = report(&dir);
+    assert!(!text.contains("add \"|"), "{text}");
+}

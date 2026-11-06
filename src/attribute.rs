@@ -60,7 +60,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
             }
             Event::Access { pid, kind, path, ok, .. } => {
                 touched.push(pid);
-                if ok && (kind == Access::Read || kind == Access::Write) {
+                if ok && kind != Access::Remove {
                     acts.push((pid, kind, path));
                 }
             }
@@ -82,6 +82,8 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
 
     let mut undeclared: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
     let mut wrote: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
+    let mut used: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
+    let mut probed: Vec<HashSet<String>> = vec![HashSet::new(); edges.len()];
     let mut writer: HashMap<String, usize> = HashMap::new();
     let mut seen = 0;
     for (pid, kind, path) in &acts {
@@ -93,7 +95,12 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
             writer.entry(path.clone()).or_insert(idx);
             continue;
         }
+        if *kind == Access::Stat {
+            probed[idx].insert(path.clone());
+            continue;
+        }
         seen += 1;
+        used[idx].insert(path.clone());
         if wrote[idx].contains(path) {
             continue;
         }
@@ -145,7 +152,56 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         println!("  {}  <-  {path}  (written by {})", edges[*idx].output, edges[*other].output);
     }
 
+    let matched: HashSet<usize> = roots.values().copied().collect();
+    let mut idle: Vec<(usize, String)> = Vec::new();
+    let mut only_probed = 0;
+    for (idx, edge) in edges.iter().enumerate() {
+        if !matched.contains(&idx) {
+            continue;
+        }
+        let Some(set) = declared.get(&edge.output) else {
+            continue;
+        };
+        let mut names: Vec<&String> = set.iter().collect();
+        names.sort();
+        for path in names {
+            if used[idx].contains(path) {
+                continue;
+            }
+            if probed[idx].contains(path) {
+                only_probed += 1;
+                continue;
+            }
+            idle.push((idx, path.clone()));
+        }
+    }
+    println!("declared inputs never touched: {}", idle.len());
+    println!("declared inputs only probed: {only_probed}");
+    for (idx, path) in idle.iter().take(40) {
+        println!("  {}  ->  {path}", edges[*idx].output);
+    }
+
     let skip = ["/bin/", "/usr/bin/", "/lib/", "/usr/lib/", "/usr/libexec/", "/dev/", "/etc/ld.so.cache"];
+    let root = dir.to_string_lossy().trim_end_matches('/').to_string();
+    let rel = |path: &str| -> String {
+        path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_string()
+    };
+    let mut fixes: Vec<(String, String)> = Vec::new();
+    for (idx, _, other) in &generated {
+        fixes.push((edges[*idx].output.clone(), edges[*other].output.clone()));
+    }
+    for (idx, set) in undeclared.iter().enumerate() {
+        for path in set.iter().filter(|path| !skip.iter().any(|pre| path.starts_with(pre))) {
+            fixes.push((edges[idx].output.clone(), rel(path)));
+        }
+    }
+    fixes.sort();
+    fixes.dedup();
+    println!("suggested additions:");
+    for (out, extra) in &fixes {
+        println!("  {out}: add \"| {extra}\" to its build line");
+    }
+
     println!("project level undeclared reads:");
     for (idx, set) in undeclared.iter().enumerate() {
         let mut list: Vec<&String> = set
