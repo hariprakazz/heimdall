@@ -127,6 +127,28 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         }
     }
 
+    let base = format!("{}/", dir.to_string_lossy().trim_end_matches('/'));
+    generated.retain(|(idx, path, _)| {
+        let mut stack: Vec<&String> = declared
+            .get(&edges[*idx].output)
+            .map(|set| set.iter().collect())
+            .unwrap_or_default();
+        let mut visited: HashSet<&String> = HashSet::new();
+        while let Some(cur) = stack.pop() {
+            if cur == path {
+                return false;
+            }
+            if !visited.insert(cur) {
+                continue;
+            }
+            let key = cur.strip_prefix(&base).unwrap_or(cur.as_str());
+            if let Some(next) = declared.get(key) {
+                stack.extend(next.iter());
+            }
+        }
+        true
+    });
+
     let pairs: usize = undeclared.iter().map(|set| set.len()).sum();
     println!("attributed reads: {seen}, distinct undeclared (edge, path) pairs: {pairs}");
 

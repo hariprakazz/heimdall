@@ -55,7 +55,7 @@ I checked one consequence by hand. After touching `scripts/pnglibconf/dfn.awk`, 
 - Linux aarch64 only. The syscall decoder is written for that ABI, and a 32 bit process gets through the seccomp filter untraced.
 - Ninja only. There is no Make support.
 - Paths are compared as text. `/lib` and `/usr/lib` are the same directory on many systems, so two spellings of one file are treated as different files.
-- A read of another edge's output is compared against declared inputs directly, so one reached only through a transitive dependency can show up as a false missing edge.
+- Transitive dependencies are followed through declared inputs only. A path that depends on a dependency Ninja does not know about is still reported.
 - Stat only probes are not judged as undeclared reads.
 - `diff` compares sets of reads, writes and removes. It cannot see a lost failed probe or a changed count, and it ignores a temp file that a step both writes and removes.
 - Suggested additions are hints, not patches. Heimdall never reads `build.ninja`, so it cannot print a diff that applies. With a generated Ninja file such as CMake's, the real fix belongs in the generator.
