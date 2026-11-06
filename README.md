@@ -1,45 +1,94 @@
 # heimdall
-A runtime hermeticity checker for builds. Heimdall runs your build command, watches which files it actually touches, and compares that against what the project declares. Anything read from outside the declared boundary is reported as a hermeticity violation.
 
-Status: design stage. No implementation yet. Everything below describes what v0 is meant to do, not what works today.
+Heimdall runs a build under ptrace, records every file each process touches, and tells you where the real build disagrees with the dependency graph Ninja was given.
 
-Why
+I wrote it because a build that works on my machine and breaks on yours usually has an input nobody declared. The build file says what a step should use. It says nothing about what the step really opens.
 
-Build files like CMakeLists.txt, Makefile and dub.json describe what a build should use. They do not stop a compiler from quietly reading /usr/include/foo.h or a file two directories up. Those undeclared reads are why a build passes on one machine and breaks on another, and why incremental builds go stale.
+## What it does
 
-Heimdall ignores what the config says and records what the build does.
+Run a build once and save the trace:
 
-How it works
-Spawn the build command under ptrace, following forks and execs so child tools (gcc, ld, as) stay traced.
-Intercept file syscalls (openat, execve, and friends) and read the path argument from the tracee's memory.
-Resolve each path to a canonical absolute form, using the directory fd or the tracee's cwd for relative paths.
-Build a graph in petgraph: processes and files as nodes, reads and writes as edges.
-Compare every read against the declared workspace boundary and report violations.
-Planned usage
-heimdall ninja
-heimdall make -j8
-heimdall --root ./src --report violations.json ninja
+    heimdall run --out trace.jsonl ninja -C build -j4
 
-Planned output: a list of violations, each with the offending path, the process that touched it, and the command line that spawned that process.
+Then ask questions about the trace:
 
-Scope for v0
-Linux x86_64 only
-ptrace backend via the nix crate
-Report mode only, no blocking
-Declared boundary taken from a CLI flag, not parsed from build files
-Later
-eBPF backend through aya for lower overhead
-Reading declared inputs from Ninja and DUB build graphs
-Blocking mode that kills the build on the first violation
-Layout
-heimdall/
-├── Cargo.toml
-└── src/
-    ├── main.rs     process orchestration and CLI
-    ├── trace.rs    ptrace loop and syscall decoding
-    └── graph.rs    graph construction and boundary checks
-Build
-cargo build --release
-License
+    heimdall actions trace.jsonl --dir build
+    heimdall diff trace1.jsonl trace2.jsonl
+    heimdall report trace.jsonl --root /path/to/project
 
-TBD
+`actions` matches each `sh -c` command to a Ninja edge, follows the process tree so a read made by gcc or ld counts for the edge that spawned it, and prints:
+
+- undeclared reads per edge, with toolchain paths filtered out
+- missing dependency edges, where an edge reads a file another edge writes without declaring it
+- declared inputs that were never read, or only probed with stat
+- a suggested `| path` addition to the build line for each finding
+
+`diff` compares two traces of the same build, keyed by command string, and lists the commands whose reads, writes or removes changed between runs. That is how you catch a flaky step.
+
+`report` is the older mode: every read outside a directory you name.
+
+Setting the `HEIMDALL_FAST` environment variable to any value before `run` installs a seccomp filter so only the file syscalls stop for ptrace.
+
+## Results
+
+**libuv** (CMake and Ninja, 79 build steps, `-j4`)
+
+- All 79 commands matched to an edge. 368446 of 369455 recorded accesses were attributed. The rest are Ninja's own, before it spawns a shell.
+- Zero missing dependency edges and zero project level undeclared reads. The only declared-but-unread input is a symlink step (`libuv.so.1`), which is a false positive: creating a symlink never opens its target.
+- Two runs diffed with 0 commands differing. A slow trace against a fast mode trace also differed in 0 commands.
+- A gcc compile traced under `strace -f` and under heimdall touched the same 228 paths.
+
+**libpng** (CMake and Ninja, 52 steps)
+
+The steps that generate `pnglibconf.h` read files that the build graph does not list as inputs. After removing system headers, about 34 lines remain, and they come down to three groups:
+
+- the generated `genout.cmake`, `gensrc.cmake` and `genchk.cmake` scripts
+- `dfn.awk`, `options.awk` and `pngusr.dfa`
+- `png.h`, `pngconf.h`, `pngpriv.h` and the per architecture `check.h` files
+
+I checked one consequence by hand. After touching `scripts/pnglibconf/dfn.awk`, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. So editing that script does not rebuild what reads it until a clean build. I would call that low severity, and I have not reported it to the libpng maintainers.
+
+**Overhead** on libuv with `-j4`: 0.68s plain, 5.19s under ptrace (7.6x), 4.19s with the seccomp filter (6.1x). These were measured in an earlier session and not repeated for this README. The fast mode helps, but not by much, and I only measured it on libuv.
+
+## Limits
+
+- Linux aarch64 only. The syscall decoder is written for that ABI, and a 32 bit process gets through the seccomp filter untraced.
+- Ninja only. There is no Make support.
+- Paths are compared as text. `/lib` and `/usr/lib` are the same directory on many systems, so two spellings of one file are treated as different files.
+- A read of another edge's output is compared against declared inputs directly, so one reached only through a transitive dependency can show up as a false missing edge.
+- Stat only probes are not judged as undeclared reads.
+- `diff` compares sets of reads, writes and removes. It cannot see a lost failed probe or a changed count, and it ignores a temp file that a step both writes and removes.
+- Suggested additions are hints, not patches. Heimdall never reads `build.ninja`, so it cannot print a diff that applies. With a generated Ninja file such as CMake's, the real fix belongs in the generator.
+- Only libuv and libpng were checked on real projects.
+
+## Building
+
+I build and run inside a Linux arm64 container so the tracing works on a Mac:
+
+    docker run -it --rm --platform linux/arm64 --cap-add=SYS_PTRACE \
+      --security-opt seccomp=unconfined -v "$PWD":/work -w /work \
+      rust:latest bash
+    apt-get update && apt-get install -y strace cmake ninja-build
+    cargo build --release
+    cargo test
+
+ptrace needs `SYS_PTRACE`, and the tests run real Ninja builds, so Ninja has to be installed.
+
+## Layout
+
+    src/main.rs        command line and the run subcommand
+    src/trace.rs       ptrace loop
+    src/filter.rs      seccomp program for the fast mode
+    src/syscalls.rs    aarch64 syscall decoder
+    src/resolve.rs     path cleanup against cwd and directory fds
+    src/event.rs       trace events and their JSON lines format
+    src/ninja.rs       build steps from Ninja's own tools
+    src/declared.rs    declared inputs from the deps log and ninja query
+    src/attribute.rs   the actions report
+    src/diff.rs        two run comparison
+    src/report.rs      reads outside a root directory
+    tests/             planted fixtures, each with a catching case and a quiet control
+
+## License
+
+MIT, see the LICENSE file.
