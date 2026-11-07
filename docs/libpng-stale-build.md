@@ -39,13 +39,13 @@ So the command reads `pngusr.dfa`, but the graph never learns that. Heimdall fla
 
 The same trace listed about 34 other project level reads in those steps: the generated `genout.cmake`, `gensrc.cmake` and `genchk.cmake` scripts, `dfn.awk`, `options.awk`, `png.h`, `pngconf.h`, `pngpriv.h` and the per architecture `check.h` files.
 
-## What is not proven
+## What is proven and what is not
 
-I confirmed a stale build only for `pngusr.dfa`.
+I confirmed a stale build for `pngusr.dfa` and for a file passed with `-DDFA_XTRA`.
 
 - `dfn.awk`: after touching it, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. I would call that low severity.
 - The other undeclared reads are listed by the trace, but I did not test whether editing them leaves a stale output.
-- A file passed with `-DDFA_XTRA` looks like it has the same gap, because it sits on the same command line and is not in `DEPENDS`. I did not test it.
+- `-DDFA_XTRA`: I configured a second build directory with `-DDFA_XTRA=/tmp/xtra.dfa`, then changed that file to contain `@# define PNG_USER_WIDTH_MAX 65535`. Ninja said no work to do while the file was newer than `pnglibconf.h`, which kept 1000000. A clean rebuild gave 65535.
 - I did not test the Autotools build.
 - Heimdall only runs on aarch64 Linux and only reads Ninja builds. I have checked it on two real projects, libuv and libpng.
 

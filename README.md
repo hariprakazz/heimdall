@@ -48,7 +48,7 @@ Heimdall found this because the steps that generate `pnglibconf.h` read files th
 - `dfn.awk`, `options.awk` and `pngusr.dfa`
 - `png.h`, `pngconf.h`, `pngpriv.h` and the per architecture `check.h` files
 
-I confirmed a stale build only for `pngusr.dfa`. I also checked `dfn.awk` by hand. After touching it, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. I would call that low severity, and it is mentioned in the same issue. I did not test the other files, a file passed with `-DDFA_XTRA`, or the Autotools build.
+I confirmed a stale build for `pngusr.dfa` and for a file passed with `-DDFA_XTRA` (same steps, and a clean rebuild picked up the change). I also checked `dfn.awk` by hand. After touching it, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. I would call that low severity, and it is mentioned in the same issue. I did not test the other files or the Autotools build.
 
 Full write-up with the reproduction and the cause: [docs/libpng-stale-build.md](docs/libpng-stale-build.md)
 
