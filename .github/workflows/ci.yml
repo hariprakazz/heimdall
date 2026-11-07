@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: install ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build
+        run: cargo build --release
+      - name: test
+        run: cargo test
