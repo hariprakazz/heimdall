@@ -40,13 +40,15 @@ Setting the `HEIMDALL_FAST` environment variable to any value before `run` insta
 
 **libpng** (CMake and Ninja, 52 steps)
 
-The steps that generate `pnglibconf.h` read files that the build graph does not list as inputs. After removing system headers, about 34 lines remain, and they come down to three groups:
+Editing `pngusr.dfa` does not regenerate `pnglibconf.h` with the CMake and Ninja build. I reproduced it on libpng18 at commit a70313d (CMake 3.31.6, Ninja 1.12.1, Debian arm64). Uncommenting `@# define PNG_USER_WIDTH_MAX 65535` in `pngusr.dfa` and running `ninja -C b` prints "no work to do", and `b/pnglibconf.h` keeps 1000000. After `ninja -t clean` and a full rebuild it shows 65535. I reported it as [libpng #978](https://github.com/pnggroup/libpng/issues/978). Reading the CMake rules, the `pnglibconf.c` step passes `pngusr.dfa` to `options.awk` but does not list it in `DEPENDS`.
+
+Heimdall found this because the steps that generate `pnglibconf.h` read files that the build graph does not list as inputs. After removing system headers, about 34 lines remain, and they come down to three groups:
 
 - the generated `genout.cmake`, `gensrc.cmake` and `genchk.cmake` scripts
 - `dfn.awk`, `options.awk` and `pngusr.dfa`
 - `png.h`, `pngconf.h`, `pngpriv.h` and the per architecture `check.h` files
 
-I checked one consequence by hand. After touching `scripts/pnglibconf/dfn.awk`, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. So editing that script does not rebuild what reads it until a clean build. I would call that low severity, and I have not reported it to the libpng maintainers.
+I confirmed a stale build only for `pngusr.dfa`. I also checked `dfn.awk` by hand. After touching it, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. I would call that low severity, and it is mentioned in the same issue. I did not test the other files, a file passed with `-DDFA_XTRA`, or the Autotools build.
 
 **Overhead** on libuv with `-j4`, release build, average of 3 runs: 0.68s plain, 5.36s under ptrace (7.9x), 4.20s with the seccomp filter (6.2x). The fast mode is about 22% faster than plain ptrace, which helps but not by much, and I only measured it on libuv.
 
