@@ -27,7 +27,7 @@ grep 'define PNG_USER_WIDTH_MAX' b/pnglibconf.h
 
 Ninja prints "no work to do" and the header still says 1000000. After `ninja -C b -t clean` and a full rebuild it says 65535. Restoring the file and doing the same again gives 1000000.
 
-So an incremental build silently keeps the old configuration. I reported it as [libpng #978](https://github.com/pnggroup/libpng/issues/978).
+So an incremental build silently keeps the old configuration. I reported it as [libpng #978](https://github.com/pnggroup/libpng/issues/978). I also opened a fix in [PR #979](https://github.com/pnggroup/libpng/pull/979), still open.
 
 ## Why it happens
 
@@ -38,6 +38,10 @@ In libpng's CMake files the `pnglibconf.c` step runs `options.awk` over `pngusr.
 So the command reads `pngusr.dfa`, but the graph never learns that. Heimdall flagged it because its trace showed the file being read by the generation steps while the Ninja graph did not list it.
 
 The same trace listed about 34 other project level reads in those steps: the generated `genout.cmake`, `gensrc.cmake` and `genchk.cmake` scripts, `dfn.awk`, `options.awk`, `png.h`, `pngconf.h`, `pngpriv.h` and the per architecture `check.h` files.
+
+## Proposed fix
+
+[PR #979](https://github.com/pnggroup/libpng/pull/979) adds `pngusr.dfa` and `${DFA_XTRA}` to the `DEPENDS` lists of the two `generate_source` calls for `pnglibconf.c`. With it, editing `pngusr.dfa` or a `-DDFA_XTRA` file (absolute or relative path) rebuilds and `pnglibconf.h` picks up the change, and a repeated `ninja` does nothing. I did not run libpng's own test suite.
 
 ## What is proven and what is not
 

@@ -42,7 +42,7 @@ Setting the `HEIMDALL_FAST` environment variable to any value before `run` insta
 
 **libpng** (CMake and Ninja, 52 steps)
 
-Editing `pngusr.dfa` does not regenerate `pnglibconf.h` with the CMake and Ninja build. I reproduced it on libpng18 at commit a70313d (CMake 3.31.6, Ninja 1.12.1, Debian arm64). Uncommenting `@# define PNG_USER_WIDTH_MAX 65535` in `pngusr.dfa` and running `ninja -C b` prints "no work to do", and `b/pnglibconf.h` keeps 1000000. After `ninja -t clean` and a full rebuild it shows 65535. I reported it as [libpng #978](https://github.com/pnggroup/libpng/issues/978). Reading the CMake rules, the `pnglibconf.c` step passes `pngusr.dfa` to `options.awk` but does not list it in `DEPENDS`.
+Editing `pngusr.dfa` does not regenerate `pnglibconf.h` with the CMake and Ninja build. I reproduced it on libpng18 at commit a70313d (CMake 3.31.6, Ninja 1.12.1, Debian arm64). Uncommenting `@# define PNG_USER_WIDTH_MAX 65535` in `pngusr.dfa` and running `ninja -C b` prints "no work to do", and `b/pnglibconf.h` keeps 1000000. After `ninja -t clean` and a full rebuild it shows 65535. I reported it as [libpng #978](https://github.com/pnggroup/libpng/issues/978). I also opened a fix in [PR #979](https://github.com/pnggroup/libpng/pull/979), still open. Reading the CMake rules, the `pnglibconf.c` step passes `pngusr.dfa` to `options.awk` but does not list it in `DEPENDS`.
 
 Heimdall found this because the steps that generate `pnglibconf.h` read files that the build graph does not list as inputs. After removing system headers, about 34 lines remain, and they come down to three groups:
 
