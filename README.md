@@ -52,6 +52,10 @@ I confirmed a stale build for `pngusr.dfa` and for a file passed with `-DDFA_XTR
 
 Full write-up with the reproduction and the cause: [docs/libpng-stale-build.md](docs/libpng-stale-build.md)
 
+**fmt** (CMake and Ninja, 79 build steps, `-j4`, commit 47fcd35, default configuration with its test executables)
+
+A clean result. All 79 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. The 1411 undeclared (edge, path) pairs are all toolchain paths such as `/lib/aarch64-linux-gnu`, `/usr/bin` and the gcc libexec directory. This covers the files read in one full build and says nothing about incremental builds.
+
 **Overhead** on libuv with `-j4`, release build, average of 3 runs: 0.68s plain, 5.36s under ptrace (7.9x), 4.20s with the seccomp filter (6.2x). The fast mode is about 22% faster than plain ptrace, which helps but not by much, and I only measured it on libuv.
 
 ## Limits
@@ -64,7 +68,7 @@ Full write-up with the reproduction and the cause: [docs/libpng-stale-build.md](
 - `diff` compares sets of reads, writes and removes. It cannot see a lost failed probe or a changed count, and it ignores a temp file that a step both writes and removes.
 - Suggested additions are hints, not patches. Heimdall never reads `build.ninja`, so it cannot print a diff that applies. With a generated Ninja file such as CMake's, the real fix belongs in the generator.
 - The symlink check reads the output from disk, so it only works while the build tree still exists when `actions` runs.
-- Only libuv and libpng were checked on real projects.
+- Only libuv, libpng and fmt were checked on real projects, and only libpng had findings.
 
 ## Building
 
