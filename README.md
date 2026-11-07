@@ -1,5 +1,7 @@
 # heimdall
 
+[![ci](https://github.com/hariprakazz/heimdall/actions/workflows/ci.yml/badge.svg)](https://github.com/hariprakazz/heimdall/actions/workflows/ci.yml)
+
 Heimdall runs a build under ptrace, records every file each process touches, and tells you where the real build disagrees with the dependency graph Ninja was given.
 
 I wrote it because a build that works on my machine and breaks on yours usually has an input nobody declared. The build file says what a step should use. It says nothing about what the step really opens.
