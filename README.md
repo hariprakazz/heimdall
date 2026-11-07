@@ -50,6 +50,8 @@ Heimdall found this because the steps that generate `pnglibconf.h` read files th
 
 I confirmed a stale build only for `pngusr.dfa`. I also checked `dfn.awk` by hand. After touching it, Ninja only re-ran CMake, and `pnglibconf.out` and `intprefix.out` stayed older than the edited file. I would call that low severity, and it is mentioned in the same issue. I did not test the other files, a file passed with `-DDFA_XTRA`, or the Autotools build.
 
+Full write-up with the reproduction and the cause: [docs/libpng-stale-build.md](docs/libpng-stale-build.md)
+
 **Overhead** on libuv with `-j4`, release build, average of 3 runs: 0.68s plain, 5.36s under ptrace (7.9x), 4.20s with the seccomp filter (6.2x). The fast mode is about 22% faster than plain ptrace, which helps but not by much, and I only measured it on libuv.
 
 ## Limits
