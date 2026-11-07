@@ -206,7 +206,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         println!("  {}  ->  {path}", edges[*idx].output);
     }
 
-    let skip = ["/bin/", "/usr/bin/", "/lib/", "/usr/lib/", "/usr/libexec/", "/usr/include/", "/dev/", "/etc/ld.so.cache"];
+    let skip = ["/bin/", "/usr/bin/", "/lib/", "/usr/lib/", "/usr/libexec/", "/usr/include/", "/dev/", "/usr/share/locale/", "/etc/ld.so.cache"];
     let root = dir.to_string_lossy().trim_end_matches('/').to_string();
     let rel = |path: &str| -> String {
         path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_string()
