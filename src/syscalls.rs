@@ -2,6 +2,7 @@ use std::fs::File;
 use std::os::unix::fs::FileExt;
 
 use nix::fcntl::OFlag;
+use nix::libc::user_regs_struct;
 use nix::unistd::Pid;
 
 use crate::event::Access;
@@ -22,6 +23,46 @@ pub const SYS_FACCESSAT2: u64 = 439;
 const AT_FDCWD: u64 = (-100i64) as u64;
 
 pub type Touch = (Access, String);
+
+#[cfg(target_arch = "aarch64")]
+pub fn nr_of(regs: &user_regs_struct) -> u64 {
+    regs.regs[8]
+}
+
+#[cfg(target_arch = "aarch64")]
+pub fn args_of(regs: &user_regs_struct) -> [u64; 6] {
+    [regs.regs[0], regs.regs[1], regs.regs[2], regs.regs[3], regs.regs[4], regs.regs[5]]
+}
+
+#[cfg(target_arch = "aarch64")]
+pub fn is_entry(regs: &user_regs_struct) -> bool {
+    regs.regs[7] == 0
+}
+
+#[cfg(target_arch = "aarch64")]
+pub fn ret_of(regs: &user_regs_struct) -> i64 {
+    regs.regs[0] as i64
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn nr_of(regs: &user_regs_struct) -> u64 {
+    regs.orig_rax
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn args_of(regs: &user_regs_struct) -> [u64; 6] {
+    [regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9]
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn is_entry(regs: &user_regs_struct) -> bool {
+    regs.rax as i64 == -38
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn ret_of(regs: &user_regs_struct) -> i64 {
+    regs.rax as i64
+}
 
 fn read_cstr(mem: &File, addr: u64) -> Option<String> {
     let mut out = Vec::new();
@@ -62,11 +103,11 @@ fn at_path(pid: Pid, mem: &File, dirfd: u64, ptr: u64) -> Option<String> {
     Some(resolve::absolute(pid, dirfd as i32, &raw))
 }
 
-pub fn decode(pid: Pid, mem: &File, reg: &[u64; 31]) -> Vec<Touch> {
+pub fn decode(pid: Pid, mem: &File, nr: u64, arg: &[u64]) -> Vec<Touch> {
     let mut out = Vec::new();
-    let first = |kind: Access| at_path(pid, mem, reg[0], reg[1]).map(|p| (kind, p));
-    match reg[8] {
-        SYS_OPENAT => out.extend(first(kind_of(reg[2]))),
+    let first = |kind: Access| at_path(pid, mem, arg[0], arg[1]).map(|p| (kind, p));
+    match nr {
+        SYS_OPENAT => out.extend(first(kind_of(arg[2]))),
         SYS_NEWFSTATAT | SYS_STATX | SYS_FACCESSAT | SYS_FACCESSAT2 | SYS_READLINKAT => {
             out.extend(first(Access::Stat))
         }
@@ -74,9 +115,9 @@ pub fn decode(pid: Pid, mem: &File, reg: &[u64; 31]) -> Vec<Touch> {
         SYS_MKDIRAT => out.extend(first(Access::Write)),
         SYS_RENAMEAT | SYS_RENAMEAT2 => {
             out.extend(first(Access::Remove));
-            out.extend(at_path(pid, mem, reg[2], reg[3]).map(|p| (Access::Write, p)));
+            out.extend(at_path(pid, mem, arg[2], arg[3]).map(|p| (Access::Write, p)));
         }
-        SYS_EXECVE => out.extend(at_path(pid, mem, AT_FDCWD, reg[0]).map(|p| (Access::Read, p))),
+        SYS_EXECVE => out.extend(at_path(pid, mem, AT_FDCWD, arg[0]).map(|p| (Access::Read, p))),
         SYS_EXECVEAT => out.extend(first(Access::Read)),
         _ => {}
     }
