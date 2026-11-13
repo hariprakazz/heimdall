@@ -56,13 +56,13 @@ fn resume(pid: Pid, task: &Task, fast: bool, sig: Option<Signal>) -> nix::Result
 
 fn on_syscall(pid: Pid, task: &mut Task, fast: bool, emit: &mut impl FnMut(Event)) -> Result<()> {
     let regs = ptrace::getregs(pid)?;
-    if regs.regs[7] == 0 {
+    if syscalls::is_entry(&regs) {
         if !fast {
-            task.pending = syscalls::decode(pid, &task.mem, &regs.regs);
+            task.pending = syscalls::decode(pid, &task.mem, syscalls::nr_of(&regs), &syscalls::args_of(&regs));
         }
         return Ok(());
     }
-    let ret = regs.regs[0] as i64;
+    let ret = syscalls::ret_of(&regs);
     let ok = ret >= 0;
     let errno = if ok { 0 } else { (-ret) as i32 };
     for (kind, path) in task.pending.drain(..) {
@@ -141,7 +141,7 @@ pub fn run(argv: &[String], mut emit: impl FnMut(Event)) -> Result<i32> {
                     emit(Event::Exec { pid: pid.as_raw(), path, argv: read_argv(pid) });
                 } else if ev == PTRACE_EVENT_SECCOMP {
                     let regs = ptrace::getregs(pid)?;
-                    task.pending = syscalls::decode(pid, &task.mem, &regs.regs);
+                    task.pending = syscalls::decode(pid, &task.mem, syscalls::nr_of(&regs), &syscalls::args_of(&regs));
                 }
                 resume(pid, task, fast, None)?;
             }

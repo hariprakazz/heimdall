@@ -62,7 +62,7 @@ A clean result. All 79 commands matched an edge, with zero missing dependency ed
 
 ## Limits
 
-- Linux aarch64 only. The syscall decoder is written for that ABI, and a 32 bit process gets through the seccomp filter untraced.
+- Linux aarch64 and x86_64. Both run in CI, but the real project checks were done on aarch64 only. The syscall decoder is written per ABI. On aarch64 a 32 bit process gets through the seccomp filter untraced, and x32 on x86_64 is not handled.
 - Ninja only. There is no Make support.
 - Paths are compared as text. `/lib` and `/usr/lib` are the same directory on many systems, so two spellings of one file are treated as different files.
 - Transitive dependencies are followed through declared inputs only. A path that depends on a dependency Ninja does not know about is still reported.
@@ -90,7 +90,7 @@ ptrace needs `SYS_PTRACE`, and the tests run real Ninja builds, so Ninja has to 
     src/main.rs        command line and the run subcommand
     src/trace.rs       ptrace loop
     src/filter.rs      seccomp program for the fast mode
-    src/syscalls.rs    aarch64 syscall decoder
+    src/syscalls.rs    syscall decoder (aarch64, x86_64)
     src/resolve.rs     path cleanup against cwd and directory fds
     src/event.rs       trace events and their JSON lines format
     src/ninja.rs       build steps from Ninja's own tools

@@ -7,13 +7,22 @@ use crate::syscalls::{
     SYS_OPENAT, SYS_READLINKAT, SYS_RENAMEAT, SYS_RENAMEAT2, SYS_STATX, SYS_UNLINKAT,
 };
 
-const AUDIT_ARCH_AARCH64: u32 = 0xC000_00B7;
+#[cfg(target_arch = "x86_64")]
+use crate::syscalls::{
+    SYS_ACCESS, SYS_LSTAT, SYS_MKDIR, SYS_OPEN, SYS_READLINK, SYS_RENAME, SYS_STAT, SYS_UNLINK,
+};
+
+#[cfg(target_arch = "aarch64")]
+const AUDIT_ARCH: u32 = 0xC000_00B7;
+#[cfg(target_arch = "x86_64")]
+const AUDIT_ARCH: u32 = 0xC000_003E;
 const LD_ABS: u16 = 0x20;
 const JEQ_K: u16 = 0x15;
 const RET_K: u16 = 0x06;
 const RET_ALLOW: u32 = 0x7fff_0000;
 const RET_TRACE: u32 = 0x7ff0_0000;
 
+#[cfg(target_arch = "aarch64")]
 const WATCHED: [u64; 12] = [
     SYS_OPENAT,
     SYS_NEWFSTATAT,
@@ -29,6 +38,30 @@ const WATCHED: [u64; 12] = [
     SYS_EXECVEAT,
 ];
 
+#[cfg(target_arch = "x86_64")]
+const WATCHED: [u64; 20] = [
+    SYS_OPEN,
+    SYS_OPENAT,
+    SYS_STAT,
+    SYS_LSTAT,
+    SYS_NEWFSTATAT,
+    SYS_STATX,
+    SYS_ACCESS,
+    SYS_FACCESSAT,
+    SYS_FACCESSAT2,
+    SYS_READLINK,
+    SYS_READLINKAT,
+    SYS_UNLINK,
+    SYS_UNLINKAT,
+    SYS_MKDIR,
+    SYS_MKDIRAT,
+    SYS_RENAME,
+    SYS_RENAMEAT,
+    SYS_RENAMEAT2,
+    SYS_EXECVE,
+    SYS_EXECVEAT,
+];
+
 fn op(code: u16, jt: u8, jf: u8, k: u32) -> sock_filter {
     sock_filter { code, jt, jf, k }
 }
@@ -37,7 +70,7 @@ pub fn program() -> Vec<sock_filter> {
     let count = WATCHED.len();
     let mut prog = vec![
         op(LD_ABS, 0, 0, 4),
-        op(JEQ_K, 0, (count + 1) as u8, AUDIT_ARCH_AARCH64),
+        op(JEQ_K, 0, (count + 1) as u8, AUDIT_ARCH),
         op(LD_ABS, 0, 0, 0),
     ];
     for (pos, &nr) in WATCHED.iter().enumerate() {
@@ -91,7 +124,7 @@ mod tests {
     fn every_watched_syscall_is_traced() {
         let prog = program();
         for &nr in WATCHED.iter() {
-            assert_eq!(verdict(&prog, AUDIT_ARCH_AARCH64, nr as u32), RET_TRACE, "nr {nr}");
+            assert_eq!(verdict(&prog, AUDIT_ARCH, nr as u32), RET_TRACE, "nr {nr}");
         }
     }
 
@@ -99,7 +132,7 @@ mod tests {
     fn other_syscalls_run_free() {
         let prog = program();
         for nr in [0u32, 63, 64, 93, 222, 226, 435] {
-            assert_eq!(verdict(&prog, AUDIT_ARCH_AARCH64, nr), RET_ALLOW, "nr {nr}");
+            assert_eq!(verdict(&prog, AUDIT_ARCH, nr), RET_ALLOW, "nr {nr}");
         }
     }
 
