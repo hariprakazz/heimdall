@@ -58,7 +58,7 @@ Full write-up with the reproduction and the cause: [docs/libpng-stale-build.md](
 
 A clean result. All 79 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. The 1411 undeclared (edge, path) pairs are all toolchain paths such as `/lib/aarch64-linux-gnu`, `/usr/bin` and the gcc libexec directory. This covers the files read in one full build and says nothing about incremental builds.
 
-**Overhead** on libuv with `-j4`, release build, average of 3 runs: 0.68s plain, 5.36s under ptrace (7.9x), 4.20s with the seccomp filter (6.2x). The fast mode is about 22% faster than plain ptrace, which helps but not by much, and I only measured it on libuv.
+**Overhead** on libuv with `-j4`, release build, average of 3 runs, measured on aarch64 only: 0.68s plain, 5.36s under ptrace (7.9x), 4.20s with the seccomp filter (6.2x). The fast mode is about 22% faster than plain ptrace, which helps but not by much, and I only measured it on libuv, not on x86_64.
 
 ## Limits
 

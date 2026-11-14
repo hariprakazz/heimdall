@@ -57,7 +57,7 @@ If the libpng maintainers reply, I will update this page with what they say.
 
 ## Overhead
 
-Measured on libuv with `-j4`, release build, average of 3 runs.
+Measured on libuv with `-j4`, release build, average of 3 runs, on aarch64. I have not measured x86_64.
 
 | Mode | Time | Slowdown |
 | --- | --- | --- |
