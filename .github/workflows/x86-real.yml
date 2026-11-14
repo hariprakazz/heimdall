@@ -1,0 +1,17 @@
+name: x86 real project
+
+on:
+  push:
+    branches: [x86-real]
+
+jobs:
+  fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: git clone https://github.com/fmtlib/fmt.git /tmp/fmt && git -C /tmp/fmt checkout 47fcd35 && cmake -S /tmp/fmt -B /tmp/fmt/build -G Ninja
+      - run: ./target/release/heimdall run --out /tmp/fmt.jsonl ninja -j4 -C /tmp/fmt/build
+      - run: ./target/release/heimdall actions /tmp/fmt.jsonl --dir /tmp/fmt/build | head -60
