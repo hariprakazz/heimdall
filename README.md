@@ -56,7 +56,7 @@ Full write-up with the reproduction and the cause: [docs/libpng-stale-build.md](
 
 **fmt** (CMake and Ninja, 79 build steps, `-j4`, commit 47fcd35, default configuration with its test executables)
 
-A clean result. All 79 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. The 1411 undeclared (edge, path) pairs are all toolchain paths such as `/lib/aarch64-linux-gnu`, `/usr/bin` and the gcc libexec directory. This covers the files read in one full build and says nothing about incremental builds.
+A clean result. All 79 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. The 1411 undeclared (edge, path) pairs are all toolchain paths such as `/lib/aarch64-linux-gnu`, `/usr/bin` and the gcc libexec directory. This covers the files read in one full build and says nothing about incremental builds. The same commit was also traced on a GitHub ubuntu-24.04 x86_64 runner with the same result: 79 of 79 commands matched, zero missing edges, zero unused inputs and no project level reads. That run first listed four reads of `/usr/local/bin/cmake`, because the runner installs cmake there, so I added that directory to the toolchain paths.
 
 **flatbuffers** (CMake and Ninja, 102 build steps, `-j4`, commit 5eb190f, default configuration with tests on)
 
@@ -70,16 +70,17 @@ Configured with `RE2C_FOR_BUILD` pointing at a prebuilt `re2c` and `RE2C_REBUILD
 
 ## Limits
 
-- Linux aarch64 and x86_64. Both run in CI, but the real project checks were done on aarch64 only. The syscall decoder is written per ABI. On aarch64 a 32 bit process gets through the seccomp filter untraced, and x32 on x86_64 is not handled.
+- Linux aarch64 and x86_64. Both run in CI. The real project checks were done on aarch64, except that fmt was also traced on an x86_64 runner. The syscall decoder is written per ABI. On aarch64 a 32 bit process gets through the seccomp filter untraced, and x32 on x86_64 is not handled.
 - Ninja only. There is no Make support.
 - Paths are compared as text. `/lib` and `/usr/lib` are the same directory on many systems, so two spellings of one file are treated as different files.
 - Transitive dependencies are followed through declared inputs only. A path that depends on a dependency Ninja does not know about is still reported.
 - Stat only probes are not judged as undeclared reads.
 - CMake projects that re-check globbed source directories on every build show those directories as undeclared reads and one unused input, `VerifyGlobs.cmake_force`, which CMake never creates. I saw this on re2c and not on fmt.
+- Toolchain paths are a fixed list of prefixes. A compiler or build tool installed somewhere else, such as `/usr/local/bin`, can show up as a project level read until its directory is added to the list.
 - `diff` compares sets of reads, writes and removes. It cannot see a lost failed probe or a changed count, and it ignores a temp file that a step both writes and removes.
 - Suggested additions are hints, not patches. Heimdall never reads `build.ninja`, so it cannot print a diff that applies. With a generated Ninja file such as CMake's, the real fix belongs in the generator.
 - The symlink check reads the output from disk, so it only works while the build tree still exists when `actions` runs.
-- Five real projects were checked (libuv, libpng, fmt, flatbuffers, re2c), all on aarch64, and only libpng had a finding that I reported upstream.
+- Five real projects were checked (libuv, libpng, fmt, flatbuffers, re2c), all on aarch64 (fmt also on x86_64), and only libpng had a finding that I reported upstream.
 
 ## Building
 
