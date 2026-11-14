@@ -206,7 +206,6 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         println!("  {}  ->  {path}", edges[*idx].output);
     }
 
-    let skip = ["/bin/", "/usr/bin/", "/lib/", "/usr/lib/", "/usr/libexec/", "/usr/include/", "/dev/", "/usr/share/locale/", "/etc/ld.so.cache"];
     let root = dir.to_string_lossy().trim_end_matches('/').to_string();
     let rel = |path: &str| -> String {
         path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_string()
@@ -216,7 +215,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
         fixes.push((edges[*idx].output.clone(), edges[*other].output.clone()));
     }
     for (idx, set) in undeclared.iter().enumerate() {
-        for path in set.iter().filter(|path| !skip.iter().any(|pre| path.starts_with(pre))) {
+        for path in set.iter().filter(|path| !is_toolchain(path)) {
             fixes.push((edges[idx].output.clone(), rel(path)));
         }
     }
@@ -231,7 +230,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
     for (idx, set) in undeclared.iter().enumerate() {
         let mut list: Vec<&String> = set
             .iter()
-            .filter(|path| !skip.iter().any(|pre| path.starts_with(pre)))
+            .filter(|path| !is_toolchain(path))
             .collect();
         list.sort();
         for path in list {
@@ -250,5 +249,45 @@ fn links_to(dir: &Path, output: &str, input: &str) -> bool {
     match (std::fs::canonicalize(&out), std::fs::canonicalize(dir.join(input))) {
         (Ok(real), Ok(want)) => real == want,
         _ => false,
+    }
+}
+
+const TOOLCHAIN_PREFIXES: [&str; 10] = [
+    "/bin/",
+    "/usr/bin/",
+    "/usr/local/bin/",
+    "/lib/",
+    "/usr/lib/",
+    "/usr/libexec/",
+    "/usr/include/",
+    "/dev/",
+    "/usr/share/locale/",
+    "/etc/ld.so.cache",
+];
+
+fn is_toolchain(path: &str) -> bool {
+    TOOLCHAIN_PREFIXES.iter().any(|pre| path.starts_with(pre))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_tool_paths_are_toolchain() {
+        assert!(is_toolchain("/usr/bin/cc"));
+        assert!(is_toolchain("/lib/x86_64-linux-gnu/libc.so.6"));
+        assert!(is_toolchain("/usr/share/locale/locale.alias"));
+    }
+
+    #[test]
+    fn project_paths_are_not_toolchain() {
+        assert!(!is_toolchain("/tmp/proj/src/main.c"));
+        assert!(!is_toolchain("/usr/local/lib/libfoo.a"));
+    }
+
+    #[test]
+    fn usr_local_bin_is_toolchain() {
+        assert!(is_toolchain("/usr/local/bin/cmake"));
     }
 }
