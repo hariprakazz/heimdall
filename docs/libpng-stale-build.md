@@ -51,7 +51,7 @@ I confirmed a stale build for `pngusr.dfa` and for a file passed with `-DDFA_XTR
 - The other undeclared reads are listed by the trace, but I did not test whether editing them leaves a stale output.
 - `-DDFA_XTRA`: I configured a second build directory with `-DDFA_XTRA=/tmp/xtra.dfa`, then changed that file to contain `@# define PNG_USER_WIDTH_MAX 65535`. Ninja said no work to do while the file was newer than `pnglibconf.h`, which kept 1000000. A clean rebuild gave 65535.
 - I did not test the Autotools build.
-- Heimdall runs on aarch64 and x86_64 Linux and only reads Ninja builds. The real project checks were all done on aarch64. I have checked it on three real projects: libuv and fmt were clean, libpng had the findings above.
+- Heimdall runs on aarch64 and x86_64 Linux and only reads Ninja builds. The real project checks were all done on aarch64. I have checked it on five real projects: libuv, fmt and flatbuffers were clean, re2c had no missing edges but its generator steps read the prebuilt re2c binary without declaring it, and libpng had the findings above.
 
 If the libpng maintainers reply, I will update this page with what they say.
 

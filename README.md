@@ -58,6 +58,14 @@ Full write-up with the reproduction and the cause: [docs/libpng-stale-build.md](
 
 A clean result. All 79 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. The 1411 undeclared (edge, path) pairs are all toolchain paths such as `/lib/aarch64-linux-gnu`, `/usr/bin` and the gcc libexec directory. This covers the files read in one full build and says nothing about incremental builds.
 
+**flatbuffers** (CMake and Ninja, 102 build steps, `-j4`, commit 5eb190f, default configuration with tests on)
+
+A clean result. All 102 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. Eleven of the commands ran `flatc` to generate code from the project's `.fbs` files, so this does cover generated sources. The 1644 undeclared (edge, path) pairs are all toolchain paths. The check ran on aarch64.
+
+**re2c** (CMake and Ninja, 805 build steps, `-j4`, commit d40e257)
+
+Configured with `RE2C_FOR_BUILD` pointing at a prebuilt `re2c` and `RE2C_REBUILD_LEXERS=ON`, so the lexers are regenerated during the build. Parser regeneration with Bison was not exercised. All 805 commands matched an edge with zero missing dependency edges. The four lexer generator steps read the `re2c` binary that was passed in through that option and the copies under `bootstrap/`, and none of these reads are declared. I think the binary read is intended, since it is an external tool, and I did not report anything upstream. The one unused declared input is `VerifyGlobs.cmake_force`, a file CMake never creates. The check ran on aarch64.
+
 **Overhead** on libuv with `-j4`, release build, average of 3 runs, measured on aarch64 only: 0.68s plain, 5.36s under ptrace (7.9x), 4.20s with the seccomp filter (6.2x). The fast mode is about 22% faster than plain ptrace, which helps but not by much, and I only measured it on libuv, not on x86_64.
 
 ## Limits
@@ -67,10 +75,11 @@ A clean result. All 79 commands matched an edge, with zero missing dependency ed
 - Paths are compared as text. `/lib` and `/usr/lib` are the same directory on many systems, so two spellings of one file are treated as different files.
 - Transitive dependencies are followed through declared inputs only. A path that depends on a dependency Ninja does not know about is still reported.
 - Stat only probes are not judged as undeclared reads.
+- CMake projects that re-check globbed source directories on every build show those directories as undeclared reads and one unused input, `VerifyGlobs.cmake_force`, which CMake never creates. I saw this on re2c and not on fmt.
 - `diff` compares sets of reads, writes and removes. It cannot see a lost failed probe or a changed count, and it ignores a temp file that a step both writes and removes.
 - Suggested additions are hints, not patches. Heimdall never reads `build.ninja`, so it cannot print a diff that applies. With a generated Ninja file such as CMake's, the real fix belongs in the generator.
 - The symlink check reads the output from disk, so it only works while the build tree still exists when `actions` runs.
-- Only libuv, libpng and fmt were checked on real projects, and only libpng had findings.
+- Five real projects were checked (libuv, libpng, fmt, flatbuffers, re2c), all on aarch64, and only libpng had a finding that I reported upstream.
 
 ## Building
 
