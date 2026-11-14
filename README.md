@@ -60,7 +60,7 @@ A clean result. All 79 commands matched an edge, with zero missing dependency ed
 
 **flatbuffers** (CMake and Ninja, 102 build steps, `-j4`, commit 5eb190f, default configuration with tests on)
 
-A clean result. All 102 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. Eleven of the commands ran `flatc` to generate code from the project's `.fbs` files, so this does cover generated sources. The 1644 undeclared (edge, path) pairs are all toolchain paths. The check ran on aarch64.
+A clean result. All 102 commands matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. Eleven of the commands ran `flatc` to generate code from the project's `.fbs` files, so this does cover generated sources. The 1644 undeclared (edge, path) pairs are all toolchain paths. The check ran on aarch64. I also touched `src/idl_parser.cpp` after the full build and traced the rebuild: 25 commands re-ran, all 25 matched an edge, with zero missing dependency edges, zero unused declared inputs and zero project level undeclared reads. Some of those were `flatc` generation steps. This covers only the commands that re-ran.
 
 **re2c** (CMake and Ninja, 805 build steps, `-j4`, commit d40e257)
 
@@ -72,6 +72,7 @@ Configured with `RE2C_FOR_BUILD` pointing at a prebuilt `re2c` and `RE2C_REBUILD
 
 - Linux aarch64 and x86_64. Both run in CI. The real project checks were done on aarch64, except that fmt was also traced on an x86_64 runner. The syscall decoder is written per ABI. On aarch64 a 32 bit process gets through the seccomp filter untraced, and x32 on x86_64 is not handled.
 - Ninja only. There is no Make support.
+- Incremental builds were checked once, on flatbuffers after touching one source file. Only the commands that re-ran are covered, so the result says nothing about the edges that were skipped.
 - Paths are compared as text. `/lib` and `/usr/lib` are the same directory on many systems, so two spellings of one file are treated as different files.
 - Transitive dependencies are followed through declared inputs only. A path that depends on a dependency Ninja does not know about is still reported.
 - Stat only probes are not judged as undeclared reads.
