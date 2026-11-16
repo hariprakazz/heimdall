@@ -19,12 +19,13 @@ use crate::syscalls::{self, Touch};
 struct Task {
     mem: File,
     pending: Vec<Touch>,
+    flagged: bool,
 }
 
 impl Task {
     fn open(pid: Pid) -> Result<Task> {
         let mem = File::open(format!("/proc/{pid}/mem"))?;
-        Ok(Task { mem, pending: Vec::new() })
+        Ok(Task { mem, pending: Vec::new(), flagged: false })
     }
 }
 
@@ -54,7 +55,19 @@ fn resume(pid: Pid, task: &Task, fast: bool, sig: Option<Signal>) -> nix::Result
     }
 }
 
+fn foreign(pid: Pid, task: &mut Task, emit: &mut impl FnMut(Event)) -> bool {
+    let alien = syscalls::arch_of(pid).is_some_and(|arch| !filter::is_native(arch));
+    if alien && !task.flagged {
+        task.flagged = true;
+        emit(Event::Foreign { pid: pid.as_raw() });
+    }
+    alien
+}
+
 fn on_syscall(pid: Pid, task: &mut Task, fast: bool, emit: &mut impl FnMut(Event)) -> Result<()> {
+    if foreign(pid, task, emit) {
+        return Ok(());
+    }
     let regs = ptrace::getregs(pid)?;
     if syscalls::is_entry(&regs) {
         if !fast {
@@ -139,7 +152,7 @@ pub fn run(argv: &[String], mut emit: impl FnMut(Event)) -> Result<i32> {
                         .map(|p| p.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     emit(Event::Exec { pid: pid.as_raw(), path, argv: read_argv(pid) });
-                } else if ev == PTRACE_EVENT_SECCOMP {
+                } else if ev == PTRACE_EVENT_SECCOMP && !foreign(pid, task, &mut emit) {
                     let regs = ptrace::getregs(pid)?;
                     task.pending = syscalls::decode(pid, &task.mem, syscalls::nr_of(&regs), &syscalls::args_of(&regs));
                 }

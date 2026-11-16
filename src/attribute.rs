@@ -36,6 +36,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
     let mut acts: Vec<(i32, Access, String)> = Vec::new();
     let mut stray: Vec<String> = Vec::new();
     let mut shells = 0;
+    let mut foreign = 0;
 
     let src = File::open(file).with_context(|| format!("cannot open {}", file.display()))?;
     for line in BufReader::new(src).lines() {
@@ -65,6 +66,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
                 }
             }
             Event::Exit { .. } => {}
+            Event::Foreign { .. } => foreign += 1,
         }
     }
 
@@ -76,6 +78,7 @@ pub fn run(file: &Path, dir: &Path) -> Result<()> {
     println!("sh -c commands seen: {shells}");
     println!("matched to an edge: {}", roots.len());
     println!("accesses: {}, attributed: {hit}", touched.len());
+    println!("foreign-arch processes seen: {foreign}");
     for cmd in stray.iter().take(3) {
         println!("unmatched: {}", cmd.chars().take(150).collect::<String>());
     }

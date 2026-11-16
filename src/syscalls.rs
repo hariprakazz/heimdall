@@ -93,6 +93,30 @@ pub fn ret_of(regs: &user_regs_struct) -> i64 {
     regs.rax as i64
 }
 
+#[repr(C)]
+pub struct SyscallInfo {
+    pub op: u8,
+    pub pad: [u8; 3],
+    pub arch: u32,
+    pub ip: u64,
+    pub sp: u64,
+    pub nr: u64,
+    pub args: [u64; 6],
+    pub ret_data: u32,
+}
+
+pub fn arch_of(pid: Pid) -> Option<u32> {
+    let mut info = std::mem::MaybeUninit::<SyscallInfo>::zeroed();
+    let size = std::mem::size_of::<SyscallInfo>();
+    let got = unsafe {
+        nix::libc::ptrace(nix::libc::PTRACE_GET_SYSCALL_INFO, pid.as_raw(), size, info.as_mut_ptr())
+    };
+    if got < 0 {
+        return None;
+    }
+    Some(unsafe { info.assume_init() }.arch)
+}
+
 fn read_cstr(mem: &File, addr: u64) -> Option<String> {
     let mut out = Vec::new();
     let mut chunk = [0u8; 256];
@@ -168,4 +192,15 @@ pub fn decode(pid: Pid, mem: &File, nr: u64, arg: &[u64]) -> Vec<Touch> {
         _ => {}
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn syscall_info_matches_kernel_layout() {
+        assert_eq!(std::mem::size_of::<SyscallInfo>(), 88);
+        assert_eq!(std::mem::offset_of!(SyscallInfo, arch), 4);
+    }
 }

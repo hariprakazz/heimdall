@@ -59,6 +59,7 @@ fn load(file: &Path) -> Result<(HashMap<String, Touches>, usize)> {
                 }
             }
             Event::Exit { .. } => {}
+            Event::Foreign { .. } => {}
         }
     }
 

@@ -70,9 +70,10 @@ Configured with `RE2C_FOR_BUILD` pointing at a prebuilt `re2c` and `RE2C_REBUILD
 
 ## Limits
 
-- Linux aarch64 and x86_64. Both run in CI. The real project checks were done on aarch64, except that fmt was also traced on an x86_64 runner. The syscall decoder is written per ABI. On aarch64 a 32 bit process gets through the seccomp filter untraced, and x32 on x86_64 is not handled.
+- Linux aarch64 and x86_64. Both run in CI. The real project checks were done on aarch64, except that fmt was also traced on an x86_64 runner. The syscall decoder is written per ABI. A process that uses a foreign ABI, such as a 32 bit one, is now sent to the tracer, which asks the kernel for the arch with PTRACE_GET_SYSCALL_INFO (Linux 5.3 or newer) and skips decoding. The report prints how many foreign-arch processes it saw, but their file accesses are not recorded. I checked on aarch64, in both modes, that the call works on native stops, and I did not run a real 32 bit process. x32 on x86_64 is not handled.
 - Ninja only. There is no Make support.
 - Incremental builds were checked once, on flatbuffers after touching one source file. Only the commands that re-ran are covered, so the result says nothing about the edges that were skipped.
+- In the default mode the first exec of the traced command is not recorded, so the root command and the read of its binary are missing from the trace. Attribution uses the shell commands that Ninja starts. Fast mode records the root exec.
 - Paths are compared as text. `/lib` and `/usr/lib` are the same directory on many systems, so two spellings of one file are treated as different files.
 - Transitive dependencies are followed through declared inputs only. A path that depends on a dependency Ninja does not know about is still reported.
 - Stat only probes are not judged as undeclared reads.

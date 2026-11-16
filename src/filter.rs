@@ -70,7 +70,7 @@ pub fn program() -> Vec<sock_filter> {
     let count = WATCHED.len();
     let mut prog = vec![
         op(LD_ABS, 0, 0, 4),
-        op(JEQ_K, 0, (count + 1) as u8, AUDIT_ARCH),
+        op(JEQ_K, 0, (count + 2) as u8, AUDIT_ARCH),
         op(LD_ABS, 0, 0, 0),
     ];
     for (pos, &nr) in WATCHED.iter().enumerate() {
@@ -79,6 +79,10 @@ pub fn program() -> Vec<sock_filter> {
     prog.push(op(RET_K, 0, 0, RET_ALLOW));
     prog.push(op(RET_K, 0, 0, RET_TRACE));
     prog
+}
+
+pub fn is_native(arch: u32) -> bool {
+    arch == AUDIT_ARCH
 }
 
 pub fn install(prog: &mut [sock_filter]) -> io::Result<()> {
@@ -137,8 +141,17 @@ mod tests {
     }
 
     #[test]
-    fn foreign_arch_is_not_trapped() {
+    fn native_arch_is_recognised() {
+        assert!(is_native(AUDIT_ARCH));
+        assert!(!is_native(0x4000_0028));
+        assert!(!is_native(0));
+    }
+
+    #[test]
+    fn foreign_arch_is_traced() {
         let prog = program();
-        assert_eq!(verdict(&prog, 0x4000_0028, SYS_OPENAT as u32), RET_ALLOW);
+        for nr in [0u32, 5, SYS_OPENAT as u32] {
+            assert_eq!(verdict(&prog, 0x4000_0028, nr), RET_TRACE, "nr {nr}");
+        }
     }
 }
